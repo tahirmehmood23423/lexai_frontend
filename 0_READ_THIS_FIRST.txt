@@ -1,0 +1,322 @@
+════════════════════════════════════════════════════════════════
+  LexAI — COMPLETE BEGINNER GUIDE
+  Read this before doing anything else
+════════════════════════════════════════════════════════════════
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PART 1: WHAT IS EACH FILE?
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Think of LexAI like a hospital system:
+
+┌─────────────────────────────────────────────────────┐
+│  FILE            │  WHAT IT DOES (simple language)  │
+├─────────────────────────────────────────────────────┤
+│  main.py         │  The RECEPTIONIST. First thing   │
+│                  │  that runs. Tells the app which  │
+│                  │  "departments" exist.             │
+├─────────────────────────────────────────────────────┤
+│  database.py     │  The PATIENT RECORDS SYSTEM.     │
+│                  │  Describes exactly what info is  │
+│                  │  saved: users, cases, hearings   │
+│                  │  etc. (like designing forms)     │
+├─────────────────────────────────────────────────────┤
+│  auth.py         │  The SECURITY GUARD. Controls   │
+│                  │  login, registration, who can    │
+│                  │  access what.                    │
+├─────────────────────────────────────────────────────┤
+│  cases.py        │  The CASE DEPARTMENT. Creates,  │
+│                  │  updates, tracks all legal cases │
+├─────────────────────────────────────────────────────┤
+│  all_routers.py  │  OTHER DEPARTMENTS: hearings,   │
+│                  │  documents, messages, bookings,  │
+│                  │  lawyer search, reviews          │
+├─────────────────────────────────────────────────────┤
+│  main.jsx        │  The FRONT DESK & WAITING ROOM. │
+│                  │  Everything the user sees in     │
+│                  │  their browser (website pages)   │
+├─────────────────────────────────────────────────────┤
+│  schema.sql      │  The DATABASE BLUEPRINT. The    │
+│                  │  exact structure of all tables   │
+│                  │  in your database.               │
+└─────────────────────────────────────────────────────┘
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PART 2: WHAT DO THESE TECHNOLOGIES MEAN?
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+PYTHON (backend language)
+→ The language your backend is written in
+→ Like the language the kitchen staff speaks
+
+FASTAPI (Python web framework)
+→ A tool that helps Python receive requests from the browser
+→ Like a waiter who takes orders from customers (browser)
+   and passes them to the kitchen (Python code)
+
+REACT (frontend JavaScript framework)
+→ A tool to build interactive websites
+→ Everything the user clicks and sees is React
+
+VITE (build tool)
+→ Makes React run fast during development
+→ Like a fast compiler that instantly shows your changes
+
+TAILWIND CSS (styling tool)
+→ Pre-built CSS classes to make things look nice
+→ Instead of writing CSS like: color: blue; font-size: 14px;
+→ You just write: className="text-blue-600 text-sm"
+
+POSTGRESQL (database)
+→ Where all data is stored permanently
+→ Like Excel but for professional applications
+
+SUPABASE (free PostgreSQL hosting)
+→ A website that hosts your PostgreSQL database for free
+→ You don't need to install PostgreSQL yourself
+
+JWT (JSON Web Token)
+→ A digital ID card given to users after login
+→ Browser sends this ID with every request to prove who they are
+
+AXIOS
+→ A tool in React to call your backend API
+→ Like a telephone to call the backend and ask for data
+
+ZUSTAND
+→ A tool to remember things across React pages
+→ Like a notepad that remembers "user is logged in as lawyer"
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PART 3: EXACT STEPS TO RUN THE APP
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+BEFORE ANYTHING: Install these two programs
+─────────────────────────────────────────────
+
+1. PYTHON 3.11+
+   → Go to: https://www.python.org/downloads/
+   → Click "Download Python 3.11.x"
+   → During install: ✅ CHECK "Add Python to PATH"  ← VERY IMPORTANT
+   → To verify: open CMD, type: python --version
+
+2. NODE.JS 20 LTS
+   → Go to: https://nodejs.org
+   → Click the green "LTS" button to download
+   → Install with all defaults
+   → To verify: open CMD, type: node --version
+
+
+STEP 1: Organize your files
+─────────────────────────────────────────────
+→ Put all your downloaded files into one folder
+  For example: D:\LexAI\lexai\
+→ Double-click: 1_organize_files.bat
+→ This creates the correct folder structure
+
+
+STEP 2: Install backend (Python)
+─────────────────────────────────────────────
+→ Double-click: 2_install_backend.bat
+→ Wait for it to finish (2-3 minutes)
+→ It installs FastAPI, SQLAlchemy, and all Python packages
+
+
+STEP 3: Run the backend
+─────────────────────────────────────────────
+→ Double-click: 3_run_backend_local.bat
+→ You will see something like:
+   INFO:     Uvicorn running on http://0.0.0.0:8000
+→ Open browser → go to: http://localhost:8000/docs
+→ You will see the Swagger UI (visual API tester)
+→ LEAVE THIS WINDOW OPEN
+
+
+STEP 4: Install frontend (React)
+─────────────────────────────────────────────
+→ Open a NEW terminal window (Ctrl+` in VS Code)
+→ Double-click: 4_install_frontend.bat
+→ Wait for it to finish (3-5 minutes)
+
+
+STEP 5: Run the frontend
+─────────────────────────────────────────────
+→ Double-click: 5_run_frontend.bat
+→ You will see: Local: http://localhost:5173/
+→ Open browser → go to: http://localhost:5173
+→ Your LexAI app is running!
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PART 4: WHAT IS SWAGGER UI? (localhost:8000/docs)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Swagger UI is an automatic visual interface for your API.
+It shows all your API endpoints and lets you test them
+without writing any code.
+
+For example:
+→ Click "POST /api/auth/register"
+→ Click "Try it out"
+→ Fill in name, email, password
+→ Click Execute
+→ See the response (user created, token returned)
+
+This is how you test your backend is working correctly
+BEFORE connecting the frontend.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PART 5: HOW A REQUEST FLOWS THROUGH THE APP
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+When a lawyer logs in, here is what happens:
+
+  BROWSER (React)
+      │
+      │  User fills login form, clicks "Login"
+      │
+      ▼
+  AXIOS (in React)
+      │
+      │  Sends POST request to http://localhost:8000/api/auth/login
+      │  with { email: "ali@law.com", password: "abc123" }
+      │
+      ▼
+  FASTAPI (main.py receives it)
+      │
+      │  Routes to auth.py → login() function
+      │
+      ▼
+  auth.py
+      │
+      │  Checks email exists in database
+      │  Checks password matches
+      │  Creates a JWT token
+      │
+      ▼
+  DATABASE (SQLite locally, PostgreSQL in production)
+      │
+      │  Returns user record
+      │
+      ▼
+  auth.py sends back:
+      { access_token: "eyJhbG...", role: "lawyer", name: "Ali" }
+      │
+      ▼
+  ZUSTAND (in React)
+      │
+      │  Saves the token to localStorage
+      │  Remembers user is logged in as "lawyer"
+      │
+      ▼
+  REACT ROUTER
+      │
+      │  Redirects lawyer to /lawyer dashboard
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PART 6: COMMON ERRORS AND FIXES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+ERROR: "'python' is not recognized"
+FIX:   Python not installed or not in PATH
+       Reinstall Python and CHECK "Add Python to PATH"
+
+ERROR: "'npm' is not recognized"
+FIX:   Node.js not installed
+       Install from nodejs.org
+
+ERROR: "Cannot connect to database"
+FIX:   For local testing, use 3_run_backend_local.bat
+       which uses SQLite (no database setup needed)
+
+ERROR: "CORS error" in browser console
+FIX:   Make sure backend is running on port 8000
+       Make sure frontend .env.local has:
+       VITE_API_URL=http://localhost:8000
+
+ERROR: "Module not found"
+FIX:   Run: pip install -r requirements.txt  (backend)
+       Or:  npm install                       (frontend)
+
+ERROR: Port 8000 already in use
+FIX:   Open Task Manager → find Python → End task
+       Then restart backend
+
+ERROR: Port 5173 already in use
+FIX:   Open Task Manager → find Node.js → End task
+       Then restart frontend
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PART 7: HOW TO READ THE CODE (for beginners)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+READING database.py:
+─────────────────────
+class User(Base):          ← This creates a "users" table
+    __tablename__ = "users"
+    id = Column(String, primary_key=True)   ← Column in table
+    email = Column(String, unique=True)     ← Column, must be unique
+    role = Column(Enum(UserRole))           ← Can be: client/lawyer/admin
+
+READING auth.py:
+─────────────────────
+@router.post("/register")        ← When someone calls POST /api/auth/register
+def register(req: RegisterRequest, db: Session = Depends(get_db)):
+    #                ↑ What data they send    ↑ Gets database connection
+    user = User(email=req.email, ...)   ← Create new user object
+    db.add(user)                        ← Add to database
+    db.commit()                         ← Save to database
+    return token                        ← Send back login token
+
+READING main.jsx:
+─────────────────────
+export default function LawyerDashboard() {
+    const [cases, setCases] = useState([])   ← Empty list to start
+
+    useEffect(() => {                        ← Run when page loads
+        casesAPI.list().then(r =>            ← Ask backend for cases
+            setCases(r.data)                 ← Save them to show on screen
+        )
+    }, [])
+
+    return (
+        <div>                               ← HTML-like structure
+            {cases.map(c => (               ← Loop through each case
+                <p>{c.title}</p>            ← Show case title
+            ))}
+        </div>
+    )
+}
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PART 8: SUMMARY CHECKLIST
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+□ Install Python 3.11+ (with "Add to PATH" checked)
+□ Install Node.js 20 LTS
+□ Run 1_organize_files.bat
+□ Run 2_install_backend.bat
+□ Run 3_run_backend_local.bat  → check localhost:8000/docs works
+□ Run 4_install_frontend.bat
+□ Run 5_run_frontend.bat  → check localhost:5173 works
+□ Test registering a user on localhost:5173
+□ Test logging in as lawyer
+□ Test creating a case
+
+Once all above work locally:
+□ Create Supabase account → run schema.sql
+□ Create Resend account → get API key
+□ Create Google OAuth credentials
+□ Deploy backend to Render.com
+□ Deploy frontend to Vercel
+□ Share your live LexAI URL!
+
+════════════════════════════════════════════════════════════════
+  Questions? Ask Claude: "I'm on step X and I see error Y"
+════════════════════════════════════════════════════════════════

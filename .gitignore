@@ -1,0 +1,15 @@
+backend/chroma_db/
+backend/bm25_cache.json
+backend/lexai_test.db
+backend/.env
+backend/venv/
+backend/__pycache__/
+backend/**/__pycache__/
+backend/upload_chroma.py
+*.pyc
+node_modules/
+frontend/dist/
+echo "chroma_db/" >> .gitignore
+echo "bm25_cache.json" >> .gitignore
+echo "*.db" >> .gitignore
+echo "__pycache__/" >> .gitignore

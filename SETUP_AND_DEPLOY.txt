@@ -1,0 +1,223 @@
+# ═══════════════════════════════════════════════════════════════
+# LexAI — Complete Deployment & Setup Guide
+# ═══════════════════════════════════════════════════════════════
+
+# ─────────────────────────────────────────────────────────────
+# BACKEND: requirements.txt
+# ─────────────────────────────────────────────────────────────
+# fastapi==0.111.0
+# uvicorn[standard]==0.29.0
+# sqlalchemy==2.0.30
+# psycopg2-binary==2.9.9
+# python-jose[cryptography]==3.3.0
+# passlib[bcrypt]==1.7.4
+# pydantic[email]==2.7.1
+# python-multipart==0.0.9
+# httpx==0.27.0
+# resend==0.7.0
+# python-dotenv==1.0.1
+# alembic==1.13.1
+
+
+# ─────────────────────────────────────────────────────────────
+# BACKEND: .env  (create this file, never commit to git)
+# ─────────────────────────────────────────────────────────────
+# DATABASE_URL=postgresql://postgres:[password]@db.[ref].supabase.co:5432/postgres
+# SECRET_KEY=generate-a-random-64-char-string-here
+# GOOGLE_CLIENT_ID=your-google-oauth-client-id
+# GOOGLE_CLIENT_SECRET=your-google-oauth-client-secret
+# GOOGLE_REDIRECT_URI=https://lexai.vercel.app/auth/callback
+# SUPABASE_URL=https://[ref].supabase.co
+# SUPABASE_SERVICE_KEY=your-supabase-service-role-key
+# RESEND_API_KEY=re_your_resend_api_key
+
+
+# ─────────────────────────────────────────────────────────────
+# FRONTEND: package.json dependencies
+# ─────────────────────────────────────────────────────────────
+# {
+#   "dependencies": {
+#     "react": "^18.3.1",
+#     "react-dom": "^18.3.1",
+#     "react-router-dom": "^6.23.1",
+#     "axios": "^1.7.2",
+#     "zustand": "^4.5.2",
+#     "@tanstack/react-query": "^5.40.0",
+#     "date-fns": "^3.6.0",
+#     "socket.io-client": "^4.7.5"
+#   },
+#   "devDependencies": {
+#     "@vitejs/plugin-react": "^4.3.0",
+#     "tailwindcss": "^3.4.4",
+#     "autoprefixer": "^10.4.19",
+#     "postcss": "^8.4.38",
+#     "vite": "^5.2.13"
+#   }
+# }
+
+
+# ─────────────────────────────────────────────────────────────
+# FRONTEND: .env.local  (never commit to git)
+# ─────────────────────────────────────────────────────────────
+# VITE_API_URL=https://lexai-api.onrender.com
+# VITE_GOOGLE_CLIENT_ID=your-google-oauth-client-id
+
+
+# ═══════════════════════════════════════════════════════════════
+# STEP-BY-STEP FREE DEPLOYMENT
+# ═══════════════════════════════════════════════════════════════
+
+# ── STEP 1: Database — Supabase (free, 500MB) ──────────────────
+# 1. Go to supabase.com → create account → New project
+# 2. Choose region closest to Pakistan (e.g. Singapore)
+# 3. Go to SQL Editor → paste contents of database/schema.sql → Run
+# 4. Go to Settings → Database → copy "Connection string (URI)"
+#    → put in backend .env as DATABASE_URL
+# 5. Go to Settings → API → copy "service_role key"
+#    → put in backend .env as SUPABASE_SERVICE_KEY
+# 6. Go to Storage → create 3 buckets:
+#    - case-documents  (private)
+#    - lawyer-profiles (public)
+#    - client-uploads  (private)
+
+
+# ── STEP 2: Email — Resend (free, 3000 emails/month) ───────────
+# 1. Go to resend.com → create account
+# 2. Add your domain OR use the free resend.dev domain for testing
+# 3. API Keys → Create API Key → copy it
+#    → put in backend .env as RESEND_API_KEY
+
+
+# ── STEP 3: Google OAuth (free) ────────────────────────────────
+# 1. Go to console.cloud.google.com → New project "LexAI"
+# 2. APIs & Services → OAuth consent screen → External → fill form
+# 3. APIs & Services → Credentials → Create OAuth 2.0 Client ID
+#    - Application type: Web application
+#    - Authorized redirect URIs: https://lexai.vercel.app/auth/callback
+#                                http://localhost:5173/auth/callback
+# 4. Copy Client ID and Client Secret → put in .env files
+
+
+# ── STEP 4: Backend — Render.com (free) ────────────────────────
+# 1. Push backend/ folder to a GitHub repo
+# 2. Go to render.com → New → Web Service → connect GitHub repo
+# 3. Settings:
+#    - Build command:  pip install -r requirements.txt
+#    - Start command:  uvicorn main:app --host 0.0.0.0 --port $PORT
+#    - Instance type:  Free
+# 4. Environment → Add all variables from backend .env
+# 5. Deploy → get your URL: https://lexai-api.onrender.com
+#
+# ⚠️ Free tier sleeps after 15 min inactivity (first request takes ~30s to wake up)
+# To keep it awake: use UptimeRobot (free) to ping /health every 10 min
+
+
+# ── STEP 5: Frontend — Vercel (free) ───────────────────────────
+# 1. Push frontend/ folder to GitHub repo
+# 2. Go to vercel.com → New Project → Import repo
+# 3. Framework: Vite → Root directory: frontend/
+# 4. Environment variables → add VITE_API_URL and VITE_GOOGLE_CLIENT_ID
+# 5. Deploy → get your URL: https://lexai.vercel.app
+# 6. Update Google OAuth redirect URI with your Vercel URL
+# 7. Update backend CORS to allow your Vercel URL
+
+
+# ── STEP 6: Keep backend alive — UptimeRobot (free) ────────────
+# 1. Go to uptimerobot.com → create free account
+# 2. Add new monitor:
+#    - Monitor type: HTTP(s)
+#    - URL: https://lexai-api.onrender.com/health
+#    - Monitoring interval: 5 minutes
+# This prevents Render free tier from sleeping
+
+
+# ═══════════════════════════════════════════════════════════════
+# LOCAL DEVELOPMENT SETUP
+# ═══════════════════════════════════════════════════════════════
+
+# Terminal 1 — Backend
+# cd backend
+# python -m venv venv
+# venv\Scripts\activate        (Windows)
+# source venv/bin/activate     (Mac/Linux)
+# pip install -r requirements.txt
+# uvicorn main:app --reload
+# → API running at http://localhost:8000
+# → Swagger docs at http://localhost:8000/docs
+
+# Terminal 2 — Frontend
+# cd frontend
+# npm install
+# npm run dev
+# → App running at http://localhost:5173
+
+# For local PostgreSQL, install PostgreSQL and create a database:
+# psql -U postgres
+# CREATE DATABASE lexai;
+# Then set DATABASE_URL=postgresql://postgres:password@localhost:5432/lexai
+
+
+# ═══════════════════════════════════════════════════════════════
+# PROJECT FILE STRUCTURE
+# ═══════════════════════════════════════════════════════════════
+
+# lexai/
+# ├── backend/
+# │   ├── main.py                    ← FastAPI app entry
+# │   ├── requirements.txt
+# │   ├── .env                       ← secrets (never commit)
+# │   ├── core/
+# │   │   └── database.py            ← SQLAlchemy models + connection
+# │   └── routers/
+# │       ├── auth.py                ← login, register, Google OAuth
+# │       ├── cases.py               ← case CRUD + case updates
+# │       ├── all_routers.py         ← hearings, documents, messages,
+# │       │                             lawyers, bookings, reviews
+# │       └── __init__.py
+# │
+# ├── frontend/
+# │   ├── package.json
+# │   ├── vite.config.js
+# │   ├── tailwind.config.js
+# │   ├── .env.local                 ← secrets (never commit)
+# │   └── src/
+# │       ├── main.jsx               ← App + all pages code
+# │       ├── lib/api.js             ← Axios client + API helpers
+# │       ├── store/authStore.js     ← Zustand auth state
+# │       ├── components/Layout.jsx  ← Sidebar shell
+# │       └── pages/
+# │           ├── LandingPage.jsx
+# │           ├── LoginPage.jsx
+# │           ├── RegisterPage.jsx
+# │           ├── LawyerSearch.jsx   ← Public lawyer directory
+# │           ├── LawyerProfile.jsx
+# │           ├── BookingPage.jsx
+# │           ├── client/
+# │           │   ├── Dashboard.jsx
+# │           │   ├── Cases.jsx
+# │           │   ├── CaseDetail.jsx ← Timeline, hearings, docs
+# │           │   ├── Messages.jsx
+# │           │   └── Bookings.jsx
+# │           └── lawyer/
+# │               ├── Dashboard.jsx  ← Stats + upcoming hearings
+# │               ├── Cases.jsx
+# │               ├── CaseDetail.jsx ← Full management view
+# │               ├── NewCase.jsx
+# │               ├── Hearings.jsx   ← Calendar + reminders
+# │               ├── Messages.jsx
+# │               ├── Bookings.jsx
+# │               └── SetupProfile.jsx
+# │
+# └── database/
+#     └── schema.sql                 ← Run in Supabase SQL editor
+
+
+# ═══════════════════════════════════════════════════════════════
+# TOTAL MONTHLY COST: PKR 0 / $0
+# ═══════════════════════════════════════════════════════════════
+# Supabase    → 500MB PostgreSQL + 1GB Storage     FREE
+# Render.com  → FastAPI backend                    FREE
+# Vercel      → React frontend                     FREE
+# Resend      → 3,000 emails/month                 FREE
+# Google Auth → OAuth login                        FREE
+# UptimeRobot → Keep backend alive                 FREE

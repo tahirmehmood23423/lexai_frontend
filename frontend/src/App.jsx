@@ -230,7 +230,7 @@ function LegalChatbot({ token, user }) {
       const res = await fetch(`${API}/api/chat/stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify({ query: q, session_id: sessionId, province: province||null, language: 'auto' })
+        body: JSON.stringify({ message: q, session_id: sessionId, user_id: user?.id || user?.user_id || null, province_filter: province || null })
       })
 
       const reader = res.body.getReader()
@@ -255,7 +255,7 @@ function LegalChatbot({ token, user }) {
         }
       }
       // Refresh sessions list
-      req('GET', '/api/chat/sessions', null, token).then(setSessions).catch(() => {})
+      req('GET', `/api/chat/sessions?user_id=${user?.id || user?.user_id || ''}`, null, token)
     } catch(e) {
       setMessages(prev => prev.map(m => m.id===uid+1 ? {...m,content:`Error: ${e.message}`,loading:false} : m))
     }

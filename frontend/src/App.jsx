@@ -1,7 +1,6 @@
 // ═══════════════════════════════════════════════════════════════
 // LexAI — Complete Merged App.jsx
 // Full platform: Lawyer marketplace + Case management + AI chatbot
-// Replace your entire frontend/src/App.jsx with this file
 // ═══════════════════════════════════════════════════════════════
 
 import { useState, useEffect, useCallback, useRef } from 'react'
@@ -99,7 +98,7 @@ function Modal({ title, onClose, children, wide=false }) {
 function Spinner() { return <div style={{ textAlign:'center',padding:40,color:'#94a3b8',fontSize:13 }}>Loading...</div> }
 function ConfBadge({ conf }) {
   const map = { high:{bg:'#dcfce7',c:'#166534',t:'High confidence'}, medium:{bg:'#fef9c3',c:'#854d0e',t:'Medium confidence'}, low:{bg:'#fee2e2',c:'#991b1b',t:'Low confidence'}, insufficient:{bg:'#f1f5f9',c:'#475569',t:'Insufficient data'} }
-  const s = map[conf] || map.insufficient
+  const s = map[(conf||'').toLowerCase()] || map.insufficient
   return <span style={{ background:s.bg,color:s.c,padding:'2px 10px',borderRadius:20,fontSize:11,fontWeight:500 }}>{s.t}</span>
 }
 
@@ -172,7 +171,7 @@ function RegisterPage({ onLogin, onGoLogin }) {
 }
 
 // ─────────────────────────────────────────────────────────────
-// AI CHATBOT PAGE — with memory (sessions)
+// AI CHATBOT — with memory, streaming, Urdu/English support
 // ─────────────────────────────────────────────────────────────
 function LegalChatbot({ token, user }) {
   const [messages, setMessages] = useState([])
@@ -181,11 +180,12 @@ function LegalChatbot({ token, user }) {
   const [province, setProvince] = useState('')
   const [sessionId, setSessionId] = useState(null)
   const [sessions, setSessions] = useState([])
-  const [showSessions, setShowSessions] = useState(false)
   const endRef = useRef(null)
 
+  const userId = user?.id || user?.user_id || null
+
   const suggestions = [
-    'What are the fundamental rights in Pakistan\'s Constitution?',
+    "What are the fundamental rights in Pakistan's Constitution?",
     'Punishment for theft under Pakistan Penal Code?',
     'How to file Khula divorce in Pakistan?',
     'پاکستان میں وراثت کے قوانین کیا ہیں؟',
@@ -196,22 +196,26 @@ function LegalChatbot({ token, user }) {
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages])
 
   useEffect(() => {
-    // Load previous sessions
-    req('GET', '/api/chat/sessions', null, token)
+    if (!userId) return
+    req('GET', `/api/chat/sessions?user_id=${userId}`, null, token)
       .then(setSessions).catch(() => {})
-  }, [token])
+  }, [token, userId])
 
   const loadSession = async (sid) => {
-    const msgs = await req('GET', `/api/chat/sessions/${sid}/messages`, null, token)
-    setMessages(msgs.map(m => ({ ...m, id: m.id })))
-    setSessionId(sid)
-    setShowSessions(false)
+    try {
+      const data = await req('GET', `/api/chat/sessions/${sid}/messages`, null, token)
+      const msgs = data.messages || []
+      setMessages(msgs.map(m => ({ id: m.id, role: m.role, content: m.content, sources: m.sources || [], confidence: m.confidence || 'medium' })))
+      setSessionId(sid)
+    } catch(e) { console.error('Failed to load session:', e) }
   }
 
-  const newChat = () => {
-    setMessages([])
-    setSessionId(null)
-    setShowSessions(false)
+  const newChat = () => { setMessages([]); setSessionId(null) }
+
+  const refreshSessions = () => {
+    if (!userId) return
+    req('GET', `/api/chat/sessions?user_id=${userId}`, null, token)
+      .then(setSessions).catch(() => {})
   }
 
   const send = async (queryText) => {
@@ -229,78 +233,102 @@ function LegalChatbot({ token, user }) {
     try {
       const res = await fetch(`${API}/api/chat/stream`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify({ message: q, session_id: sessionId, user_id: user?.id || user?.user_id || null, province_filter: province || null })
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        // ✅ FIXED: correct field names matching backend ChatRequest schema
+        body: JSON.stringify({
+          message: q,
+          session_id: sessionId,
+          user_id: userId,
+          province_filter: province || null
+        })
       })
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}))
+        throw new Error(errData.detail || `HTTP ${res.status}`)
+      }
 
       const reader = res.body.getReader()
       const decoder = new TextDecoder()
-      let full = '', sources = [], conf = 'medium', sid = sessionId
+      let full = '', sources = [], conf = 'medium'
 
       while (true) {
         const { done, value } = await reader.read()
         if (done) break
-        for (const line of decoder.decode(value).split('\n')) {
+        const text = decoder.decode(value)
+        for (const line of text.split('\n')) {
           if (!line.startsWith('data: ')) continue
           try {
             const d = JSON.parse(line.slice(6))
-            if (d.type === 'session') { sid = d.session_id; setSessionId(sid) }
-            else if (d.type === 'token') {
+            if (d.type === 'meta') {
+              // Session ID and sources come in meta block
+              if (d.session_id) setSessionId(d.session_id)
+              if (d.sources) sources = d.sources
+              if (d.confidence) conf = d.confidence
+              setMessages(prev => prev.map(m => m.id===uid+1 ? {...m, sources, confidence: conf} : m))
+            } else if (d.type === 'token') {
               full += d.content
-              setMessages(prev => prev.map(m => m.id===uid+1 ? {...m,content:full,loading:false} : m))
+              setMessages(prev => prev.map(m => m.id===uid+1 ? {...m, content: full, loading: false} : m))
+            } else if (d.type === 'done') {
+              if (d.session_id) setSessionId(d.session_id)
+              setMessages(prev => prev.map(m => m.id===uid+1 ? {...m, loading: false} : m))
+              refreshSessions()
+            } else if (d.type === 'error') {
+              throw new Error(d.content)
             }
-            else if (d.type === 'sources') { sources = d.sources; setMessages(prev => prev.map(m => m.id===uid+1 ? {...m,sources} : m)) }
-            else if (d.type === 'done') { conf = d.confidence||'medium'; setMessages(prev => prev.map(m => m.id===uid+1 ? {...m,confidence:conf,loading:false} : m)) }
-          } catch {}
+          } catch(parseErr) { /* ignore parse errors on individual lines */ }
         }
       }
-      // Refresh sessions list
-      req('GET', `/api/chat/sessions?user_id=${user?.id || user?.user_id || ''}`, null, token)
     } catch(e) {
-      setMessages(prev => prev.map(m => m.id===uid+1 ? {...m,content:`Error: ${e.message}`,loading:false} : m))
+      setMessages(prev => prev.map(m => m.id===uid+1
+        ? {...m, content: `❌ Error: ${e.message}`, loading: false}
+        : m
+      ))
     }
     setLoading(false)
   }
 
   const stl = {
-    wrap: { display:'flex',height:'calc(100vh - 65px)' },
-    sessPanel: { width:220,background:'white',borderRight:'1px solid #e2e8f0',overflowY:'auto',flexShrink:0 },
-    sessPanelHeader: { padding:'14px 14px 10px',borderBottom:'1px solid #e2e8f0',display:'flex',justifyContent:'space-between',alignItems:'center' },
-    sessItem: (active) => ({ padding:'10px 14px',cursor:'pointer',borderBottom:'1px solid #f1f5f9',background:active?'#eff6ff':'white',borderLeft:active?'3px solid #3b82f6':'3px solid transparent' }),
-    chatArea: { flex:1,display:'flex',flexDirection:'column',background:'#f8fafc' },
-    chatHeader: { background:'white',borderBottom:'1px solid #e2e8f0',padding:'10px 20px',display:'flex',alignItems:'center',justifyContent:'space-between' },
-    msgs: { flex:1,overflowY:'auto',padding:20,display:'flex',flexDirection:'column',gap:16 },
-    empty: { flex:1,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:12 },
-    suggs: { display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginTop:12,maxWidth:560 },
-    suggBtn: { background:'white',border:'1px solid #e2e8f0',borderRadius:8,padding:'9px 12px',fontSize:12,color:'#374151',cursor:'pointer',textAlign:'left',lineHeight:1.4 },
-    userRow: { display:'flex',justifyContent:'flex-end' },
-    userBubble: { maxWidth:'70%',background:'#0a1628',color:'white',borderRadius:'14px 14px 3px 14px',padding:'11px 15px',fontSize:13,lineHeight:1.6 },
-    botRow: { display:'flex',gap:10,alignItems:'flex-start' },
-    botAvatar: { width:30,height:30,borderRadius:'50%',background:'#dbeafe',display:'flex',alignItems:'center',justifyContent:'center',fontSize:14,flexShrink:0 },
-    botBubble: { flex:1,background:'white',border:'1px solid #e2e8f0',borderRadius:'3px 14px 14px 14px',padding:14,fontSize:13,lineHeight:1.7,color:'#374151' },
-    ansText: { whiteSpace:'pre-wrap',margin:'0 0 10px' },
-    meta: { display:'flex',alignItems:'center',gap:8,flexWrap:'wrap',marginTop:8,paddingTop:8,borderTop:'1px solid #f1f5f9' },
-    disclaimer: { fontSize:11,color:'#94a3b8',marginTop:6,fontStyle:'italic' },
-    inputArea: { background:'white',borderTop:'1px solid #e2e8f0',padding:'10px 20px' },
-    filterRow: { display:'flex',gap:8,marginBottom:8,alignItems:'center' },
-    inputRow: { display:'flex',gap:8 },
-    inputBox: { flex:1,border:'1px solid #e2e8f0',borderRadius:10,padding:'9px 14px',fontSize:13,outline:'none',fontFamily:'inherit',resize:'none' },
-    sendBtn: (d) => ({ background:d?'#94a3b8':'#0a1628',color:'white',border:'none',borderRadius:10,padding:'9px 18px',fontSize:13,cursor:d?'not-allowed':'pointer',fontFamily:'inherit',fontWeight:500 }),
+    wrap: { display:'flex', height:'calc(100vh - 65px)' },
+    sessPanel: { width:220, background:'white', borderRight:'1px solid #e2e8f0', overflowY:'auto', flexShrink:0 },
+    sessPanelHeader: { padding:'14px 14px 10px', borderBottom:'1px solid #e2e8f0', display:'flex', justifyContent:'space-between', alignItems:'center' },
+    sessItem: (active) => ({ padding:'10px 14px', cursor:'pointer', borderBottom:'1px solid #f1f5f9', background:active?'#eff6ff':'white', borderLeft:active?'3px solid #3b82f6':'3px solid transparent' }),
+    chatArea: { flex:1, display:'flex', flexDirection:'column', background:'#f8fafc' },
+    chatHeader: { background:'white', borderBottom:'1px solid #e2e8f0', padding:'10px 20px', display:'flex', alignItems:'center', justifyContent:'space-between' },
+    msgs: { flex:1, overflowY:'auto', padding:20, display:'flex', flexDirection:'column', gap:16 },
+    empty: { flex:1, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:12 },
+    suggs: { display:'grid', gridTemplateColumns:'1fr 1fr', gap:8, marginTop:12, maxWidth:560 },
+    suggBtn: { background:'white', border:'1px solid #e2e8f0', borderRadius:8, padding:'9px 12px', fontSize:12, color:'#374151', cursor:'pointer', textAlign:'left', lineHeight:1.4 },
+    userRow: { display:'flex', justifyContent:'flex-end' },
+    userBubble: { maxWidth:'70%', background:'#0a1628', color:'white', borderRadius:'14px 14px 3px 14px', padding:'11px 15px', fontSize:13, lineHeight:1.6 },
+    botRow: { display:'flex', gap:10, alignItems:'flex-start' },
+    botAvatar: { width:30, height:30, borderRadius:'50%', background:'#dbeafe', display:'flex', alignItems:'center', justifyContent:'center', fontSize:14, flexShrink:0 },
+    botBubble: { flex:1, background:'white', border:'1px solid #e2e8f0', borderRadius:'3px 14px 14px 14px', padding:14, fontSize:13, lineHeight:1.7, color:'#374151' },
+    ansText: { whiteSpace:'pre-wrap', margin:'0 0 10px' },
+    meta: { display:'flex', alignItems:'center', gap:8, flexWrap:'wrap', marginTop:8, paddingTop:8, borderTop:'1px solid #f1f5f9' },
+    inputArea: { background:'white', borderTop:'1px solid #e2e8f0', padding:'10px 20px' },
+    filterRow: { display:'flex', gap:8, marginBottom:8, alignItems:'center' },
+    inputRow: { display:'flex', gap:8 },
+    inputBox: { flex:1, border:'1px solid #e2e8f0', borderRadius:10, padding:'9px 14px', fontSize:13, outline:'none', fontFamily:'inherit', resize:'none' },
+    sendBtn: (d) => ({ background:d?'#94a3b8':'#0a1628', color:'white', border:'none', borderRadius:10, padding:'9px 18px', fontSize:13, cursor:d?'not-allowed':'pointer', fontFamily:'inherit', fontWeight:500 }),
   }
 
   const SourcesToggle = ({ sources }) => {
-    const [open,setOpen] = useState(false)
+    const [open, setOpen] = useState(false)
     if (!sources?.length) return null
     return (
       <div>
-        <button onClick={()=>setOpen(!open)} style={{ fontSize:11,color:'#3b82f6',cursor:'pointer',background:'none',border:'none',padding:0 }}>
+        <button onClick={()=>setOpen(!open)} style={{ fontSize:11, color:'#3b82f6', cursor:'pointer', background:'none', border:'none', padding:0 }}>
           {open?'Hide':'View'} {sources.length} source{sources.length>1?'s':''}
         </button>
         {open && (
-          <div style={{ marginTop:6,background:'#f8fafc',borderRadius:6,padding:'8px 12px' }}>
+          <div style={{ marginTop:6, background:'#f8fafc', borderRadius:6, padding:'8px 12px' }}>
             {sources.map((s,i) => (
-              <div key={i} style={{ fontSize:11,color:'#64748b',padding:'2px 0' }}>
-                📄 {s.filename}{s.province&&s.province!=='Unknown'?` (${s.province})`:''}{s.relevance_score?` — ${(s.relevance_score*100).toFixed(0)}%`:''}
+              <div key={i} style={{ fontSize:11, color:'#64748b', padding:'2px 0' }}>
+                📄 {s.filename}{s.relevance ? ` — ${s.relevance}%` : ''}
               </div>
             ))}
           </div>
@@ -314,15 +342,15 @@ function LegalChatbot({ token, user }) {
       {/* Sessions sidebar */}
       <div style={stl.sessPanel}>
         <div style={stl.sessPanelHeader}>
-          <span style={{ fontSize:13,fontWeight:600,color:'#0f172a' }}>History</span>
-          <button onClick={newChat} style={{ ...S.btnSm('blue'),fontSize:11 }}>+ New</button>
+          <span style={{ fontSize:13, fontWeight:600, color:'#0f172a' }}>History</span>
+          <button onClick={newChat} style={{ ...S.btnSm('blue'), fontSize:11 }}>+ New</button>
         </div>
         {sessions.length === 0 ? (
-          <div style={{ padding:14,fontSize:12,color:'#94a3b8' }}>No previous chats</div>
+          <div style={{ padding:14, fontSize:12, color:'#94a3b8' }}>No previous chats</div>
         ) : sessions.map(s => (
           <div key={s.id} style={stl.sessItem(s.id===sessionId)} onClick={()=>loadSession(s.id)}>
-            <p style={{ margin:0,fontSize:12,fontWeight:500,color:'#374151',lineHeight:1.4 }}>{s.title||'Conversation'}</p>
-            <p style={{ margin:'2px 0 0',fontSize:11,color:'#94a3b8' }}>{s.message_count} messages</p>
+            <p style={{ margin:0, fontSize:12, fontWeight:500, color:'#374151', lineHeight:1.4 }}>{s.title||'Conversation'}</p>
+            <p style={{ margin:'2px 0 0', fontSize:11, color:'#94a3b8' }}>{s.updated_at ? new Date(s.updated_at).toLocaleDateString() : ''}</p>
           </div>
         ))}
       </div>
@@ -331,18 +359,18 @@ function LegalChatbot({ token, user }) {
       <div style={stl.chatArea}>
         <div style={stl.chatHeader}>
           <div>
-            <span style={{ fontSize:14,fontWeight:600,color:'#0f172a' }}>⚖️ LexAI Legal Assistant</span>
-            <span style={{ fontSize:11,color:'#64748b',marginLeft:8 }}>26GB Pakistani law books · Urdu + English</span>
+            <span style={{ fontSize:14, fontWeight:600, color:'#0f172a' }}>⚖️ LexAI Legal Assistant</span>
+            <span style={{ fontSize:11, color:'#64748b', marginLeft:8 }}>Pakistani law · Urdu + English</span>
           </div>
-          <div style={{ width:8,height:8,background:'#16a34a',borderRadius:'50%' }} />
+          <div style={{ width:8, height:8, background:'#16a34a', borderRadius:'50%' }} />
         </div>
 
         <div style={stl.msgs}>
           {messages.length === 0 ? (
             <div style={stl.empty}>
               <div style={{ fontSize:44 }}>⚖️</div>
-              <p style={{ fontSize:18,fontWeight:600,color:'#0f172a',margin:0 }}>Ask me anything about Pakistani law</p>
-              <p style={{ fontSize:13,color:'#64748b',margin:0 }}>Ask in English or اردو · All provinces covered</p>
+              <p style={{ fontSize:18, fontWeight:600, color:'#0f172a', margin:0 }}>Ask me anything about Pakistani law</p>
+              <p style={{ fontSize:13, color:'#64748b', margin:0 }}>Ask in English or اردو · All provinces covered</p>
               <div style={stl.suggs}>
                 {suggestions.map((s,i) => (
                   <button key={i} style={stl.suggBtn} onClick={()=>send(s)}>{s}</button>
@@ -358,9 +386,9 @@ function LegalChatbot({ token, user }) {
                   <div style={stl.botAvatar}>⚖️</div>
                   <div style={stl.botBubble}>
                     {msg.loading && !msg.content ? (
-                      <div style={{ display:'flex',gap:4 }}>
+                      <div style={{ display:'flex', gap:4 }}>
                         {[0,1,2].map(i=>(
-                          <div key={i} style={{ width:6,height:6,background:'#94a3b8',borderRadius:'50%',animation:`bounce 1s ease-in-out ${i*0.15}s infinite` }} />
+                          <div key={i} style={{ width:6, height:6, background:'#94a3b8', borderRadius:'50%', animation:`bounce 1s ease-in-out ${i*0.15}s infinite` }} />
                         ))}
                       </div>
                     ) : (
@@ -372,7 +400,6 @@ function LegalChatbot({ token, user }) {
                             <SourcesToggle sources={msg.sources} />
                           </div>
                         )}
-                        {msg.disclaimer && <p style={stl.disclaimer}>{msg.disclaimer}</p>}
                       </>
                     )}
                   </div>
@@ -385,18 +412,28 @@ function LegalChatbot({ token, user }) {
 
         <div style={stl.inputArea}>
           <div style={stl.filterRow}>
-            <span style={{ fontSize:11,color:'#64748b' }}>Province:</span>
-            <select style={{ fontSize:11,border:'1px solid #e2e8f0',borderRadius:6,padding:'3px 8px',background:'white' }} value={province} onChange={e=>setProvince(e.target.value)}>
+            <span style={{ fontSize:11, color:'#64748b' }}>Province:</span>
+            <select style={{ fontSize:11, border:'1px solid #e2e8f0', borderRadius:6, padding:'3px 8px', background:'white' }} value={province} onChange={e=>setProvince(e.target.value)}>
               <option value="">All provinces</option>
               {['Punjab','Sindh','KPK','Balochistan','Federal'].map(p=><option key={p}>{p}</option>)}
             </select>
-            <span style={{ fontSize:11,color:'#94a3b8' }}>Ask in English or اردو</span>
+            <span style={{ fontSize:11, color:'#94a3b8' }}>Ask in English or اردو</span>
           </div>
           <div style={stl.inputRow}>
-            <textarea style={stl.inputBox} rows={2} placeholder="Ask a legal question..." value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>{ if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send()} }} disabled={loading} />
-            <button style={stl.sendBtn(loading||!input.trim())} onClick={()=>send()} disabled={loading||!input.trim()}>{loading?'...':'Ask'}</button>
+            <textarea
+              style={stl.inputBox}
+              rows={2}
+              placeholder="Ask a legal question..."
+              value={input}
+              onChange={e=>setInput(e.target.value)}
+              onKeyDown={e=>{ if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send()} }}
+              disabled={loading}
+            />
+            <button style={stl.sendBtn(loading||!input.trim())} onClick={()=>send()} disabled={loading||!input.trim()}>
+              {loading?'...':'Ask'}
+            </button>
           </div>
-          <p style={{ fontSize:11,color:'#94a3b8',margin:'5px 0 0' }}>Enter to send · Shift+Enter for new line · Legal information only, not advice</p>
+          <p style={{ fontSize:11, color:'#94a3b8', margin:'5px 0 0' }}>Enter to send · Shift+Enter for new line · Legal information only, not advice</p>
         </div>
       </div>
     </div>
@@ -542,8 +579,7 @@ function CaseDetail({ caseData, token, onBack }) {
       <div style={{ display:'flex',borderBottom:'1px solid #e2e8f0',marginBottom:20 }}>
         {['overview','hearings','documents','updates'].map(t=>(
           <button key={t} onClick={()=>setTab(t)} style={{ padding:'9px 18px',border:'none',background:'none',cursor:'pointer',fontSize:13,fontWeight:500,textTransform:'capitalize',color:tab===t?'#3b82f6':'#64748b',borderBottom:tab===t?'2px solid #3b82f6':'2px solid transparent',marginBottom:-1 }}>
-            {t}{t==='hearings'&&hearings.length>0&&<span style={{ ...S.badge('blue'),marginLeft:6,fontSize:10 }}>{hearings.length}</span>}
-            {t==='documents'&&docs.length>0&&<span style={{ ...S.badge('gray'),marginLeft:6,fontSize:10 }}>{docs.length}</span>}
+            {t}
           </button>
         ))}
       </div>
@@ -607,7 +643,7 @@ function CaseDetail({ caseData, token, onBack }) {
 }
 
 // ─────────────────────────────────────────────────────────────
-// HEARINGS PAGE
+// HEARINGS
 // ─────────────────────────────────────────────────────────────
 function LawyerHearings({ token }) {
   const [hearings,setHearings]=useState([]); const [loading,setLoading]=useState(true); const [days,setDays]=useState(30)
@@ -785,14 +821,14 @@ function LawyerSearch({ token }) {
 // ─────────────────────────────────────────────────────────────
 const LAWYER_NAV = [
   { section: 'Practice' },
-  { id: 'dashboard', label: 'Dashboard',   icon: '🏠' },
-  { id: 'cases',     label: 'Cases',        icon: '⚖️' },
-  { id: 'hearings',  label: 'Hearings',     icon: '🏛️' },
+  { id: 'dashboard', label: 'Dashboard', icon: '🏠' },
+  { id: 'cases',     label: 'Cases',     icon: '⚖️' },
+  { id: 'hearings',  label: 'Hearings',  icon: '🏛️' },
   { section: 'Clients' },
-  { id: 'messages',  label: 'Messages',     icon: '💬' },
-  { id: 'bookings',  label: 'Bookings',     icon: '📅' },
+  { id: 'messages',  label: 'Messages',  icon: '💬' },
+  { id: 'bookings',  label: 'Bookings',  icon: '📅' },
   { section: 'AI Tools' },
-  { id: 'chatbot',   label: 'Legal AI',     icon: '⚖️', ai: true },
+  { id: 'chatbot',   label: 'Legal AI',  icon: '⚖️', ai: true },
 ]
 
 const CLIENT_NAV = [
@@ -870,10 +906,11 @@ export default function App() {
         @keyframes bounce { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-4px)} }
         * { box-sizing: border-box; }
         body { margin: 0; }
-        ::-webkit-scrollbar { width: 4px; } ::-webkit-scrollbar-track { background: transparent; } ::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 4px; }
+        ::-webkit-scrollbar { width: 4px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 4px; }
       `}</style>
       <div style={S.app}>
-        {/* Sidebar */}
         <aside style={S.sidebar}>
           <div style={S.sidebarLogo}>
             <p style={S.sidebarLogoText}>Lex<span style={{ color:'#3b82f6' }}>AI</span></p>
@@ -901,7 +938,6 @@ export default function App() {
           </div>
         </aside>
 
-        {/* Main content */}
         <div style={S.main}>
           {page !== 'chatbot' && (
             <div style={S.topbar}>

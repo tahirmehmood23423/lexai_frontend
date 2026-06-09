@@ -1,7 +1,6 @@
 # ═══════════════════════════════════════════════════════════════
 # backend/core/rag_engine.py
-# LexAI — Retrieval Engine (Vector + Reranker mode)
-# BM25 disabled for HF Spaces free tier compatibility
+# LexAI — Retrieval Engine (Hybrid mode: Vector + BM25 + Reranker)
 # ═══════════════════════════════════════════════════════════════
 
 import os
@@ -11,17 +10,20 @@ import numpy as np
 from pathlib import Path
 from typing import Optional
 
+from core.bm25_index import BM25Retriever
+
 
 class LexAIRetriever:
     """
-    Lightweight retriever for Pakistani legal documents.
-    
-    Two-stage pipeline (optimized for free tier):
-    1. Vector search  — ChromaDB cosine similarity (semantic)
-    2. Cross-encoder  — reranks candidates by relevance
-    
-    Note: BM25 keyword search is disabled to reduce startup time
-    on free tier. Can be re-enabled when upgrading to Pro.
+    Hybrid retriever for Pakistani legal documents.
+
+    Three-stage pipeline:
+    1. Dense retrieval  — ChromaDB cosine similarity (semantic, paraphrases)
+    2. Sparse retrieval — BM25 keyword (exact statutes, proper nouns)
+       → Fused via Reciprocal Rank Fusion (RRF)
+    3. Cross-encoder    — reranks fused candidates by relevance
+
+    Designed for HF Spaces free tier (16 GB RAM).
     """
 
     def __init__(self):
@@ -29,27 +31,24 @@ class LexAIRetriever:
         self.embed_model = None
         self.reranker    = None
         self.rerank_tok  = None
+        self.bm25        = None
 
-        print("🔧 Initializing LexAI retrieval engine (vector-only mode)...")
+        print("🔧 Initializing LexAI retrieval engine (hybrid mode)...")
         self._ensure_chroma_downloaded()
         self._load_vector_db()
         self._load_reranker()
         self._load_embed_model()
-        print("✅ Retrieval engine ready (vector + reranker)")
+        self._load_bm25_index()
+        print("✅ Retrieval engine ready (vector + BM25 + reranker)")
 
     # ─────────────────────────────────────────────────────────
     # HuggingFace Hub auto-download
     # ─────────────────────────────────────────────────────────
 
     def _ensure_chroma_downloaded(self):
-        """
-        Download ChromaDB from HuggingFace Hub if not present locally.
-        On local machine: chroma_db/ folder already exists → skips download.
-        On HF Spaces: folder is empty on first boot → downloads from HF Hub.
-        """
+        """Download ChromaDB from HuggingFace Hub if not present locally."""
         chroma_path = os.getenv("CHROMA_DB_PATH", "./chroma_db")
 
-        # Already exists locally — skip download
         if os.path.exists(chroma_path) and os.listdir(chroma_path):
             print(f"   ✅ ChromaDB found locally at {chroma_path}")
             return
@@ -107,14 +106,12 @@ class LexAIRetriever:
             settings=Settings(anonymized_telemetry=False)
         )
 
-        # List available collections
         collections = client.list_collections()
         print(f"   📋 Available collections: {[c.name for c in collections]}")
 
         if not collections:
             raise RuntimeError("No collections found in ChromaDB!")
 
-        # Try common names first, then use first available
         self.collection = None
         collection_name = None
         for name in ["pakistan_legal", "legal_docs", "pakistani_law"]:
@@ -125,7 +122,6 @@ class LexAIRetriever:
             except Exception:
                 continue
 
-        # Fallback: use first available collection
         if self.collection is None:
             collection_name = collections[0].name
             self.collection = client.get_collection(collection_name)
@@ -141,13 +137,9 @@ class LexAIRetriever:
         model_name = "cross-encoder/ms-marco-MiniLM-L6-v2"
         print("   📦 Loading reranker...")
 
-        self.rerank_tok = AutoTokenizer.from_pretrained(
-            model_name,
-            cache_dir=cache_dir
-        )
+        self.rerank_tok = AutoTokenizer.from_pretrained(model_name, cache_dir=cache_dir)
         self.reranker = AutoModelForSequenceClassification.from_pretrained(
-            model_name,
-            cache_dir=cache_dir
+            model_name, cache_dir=cache_dir
         )
         self.reranker.eval()
         print("   ✅ Cross-encoder reranker loaded")
@@ -160,11 +152,16 @@ class LexAIRetriever:
         model_name = os.getenv("EMBED_MODEL", "intfloat/multilingual-e5-large")
         print("   📦 Loading embedding model...")
 
-        self.embed_model = SentenceTransformer(
-            model_name,
-            cache_folder=cache_dir
-        )
+        self.embed_model = SentenceTransformer(model_name, cache_folder=cache_dir)
         print("   ✅ Embedding model loaded")
+
+    def _load_bm25_index(self):
+        """Load BM25 index from disk, or build it from Chroma if missing."""
+        print("   📦 Loading BM25 index...")
+        self.bm25 = BM25Retriever()
+        if not self.bm25.load():
+            print("   ⚠️  BM25 index not found — building from Chroma (one-time, ~10 min)")
+            self.bm25.build_from_chroma(self.collection)
 
     # ─────────────────────────────────────────────────────────
     # RETRIEVAL METHODS
@@ -173,13 +170,10 @@ class LexAIRetriever:
     def _vector_search(
         self,
         query: str,
-        top_k: int = 40,
+        top_k: int = 30,
         province_filter: Optional[str] = None
     ) -> list:
-        """
-        Semantic search using multilingual-E5-large embeddings.
-        Increased top_k to 40 since we're not using BM25 to supplement results.
-        """
+        """Semantic search using multilingual-E5-large embeddings."""
         query_embedding = self.embed_model.encode(
             f"query: {query}",
             normalize_embeddings=True
@@ -197,12 +191,14 @@ class LexAIRetriever:
         )
 
         chunks = []
-        for doc, meta, dist in zip(
+        for chunk_id, doc, meta, dist in zip(
+            results["ids"][0],
             results["documents"][0],
             results["metadatas"][0],
             results["distances"][0]
         ):
             chunks.append({
+                "id":       chunk_id,
                 "text":     doc,
                 "metadata": meta,
                 "score":    float(1 - dist),
@@ -210,15 +206,48 @@ class LexAIRetriever:
             })
         return chunks
 
-    def _rerank(self, query: str, candidates: list, top_k: int = 6) -> list:
-        """
-        Cross-encoder reranking.
-        Scores every (query, chunk) pair together for higher accuracy.
-        Runs entirely on CPU — no GPU needed.
+    def _bm25_search(
+        self,
+        query: str,
+        top_k: int = 30,
+        province_filter: Optional[str] = None
+    ) -> list:
+        """Keyword search using BM25 — best for statutes, names, exact terms."""
+        return self.bm25.search(query, top_k=top_k, province_filter=province_filter)
 
-        FIX: handles scalar logits when only 1 candidate is passed,
-        and handles the case where tolist() returns a plain float.
+    @staticmethod
+    def _rrf_fuse(dense_results: list, sparse_results: list, k: int = 60, top_n: int = 20) -> list:
         """
+        Reciprocal Rank Fusion: combines two ranked lists.
+        score(doc) = sum over retrievers of 1 / (k + rank_in_that_retriever)
+        k=60 is the value from the original RRF paper (Cormack et al. 2009).
+        """
+        scores: dict = {}
+        docs: dict = {}
+
+        for rank, item in enumerate(dense_results):
+            doc_id = item["id"]
+            scores[doc_id] = scores.get(doc_id, 0) + 1.0 / (k + rank + 1)
+            docs[doc_id] = item
+
+        for rank, item in enumerate(sparse_results):
+            doc_id = item["id"]
+            scores[doc_id] = scores.get(doc_id, 0) + 1.0 / (k + rank + 1)
+            if doc_id not in docs:
+                docs[doc_id] = item
+
+        fused_ids = sorted(scores.keys(), key=lambda i: scores[i], reverse=True)[:top_n]
+
+        fused = []
+        for doc_id in fused_ids:
+            item = dict(docs[doc_id])
+            item["score"] = float(scores[doc_id])
+            item["method"] = "hybrid"
+            fused.append(item)
+        return fused
+
+    def _rerank(self, query: str, candidates: list, top_k: int = 6) -> list:
+        """Cross-encoder reranking. Runs on CPU."""
         if not candidates:
             return []
 
@@ -228,43 +257,32 @@ class LexAIRetriever:
 
         with torch.no_grad():
             encoded = self.rerank_tok(
-                pairs,
-                padding=True,
-                truncation=True,
-                max_length=512,
-                return_tensors="pt"
+                pairs, padding=True, truncation=True, max_length=512, return_tensors="pt"
             )
             logits = self.reranker(**encoded).logits
 
-            # ── FIX: ensure logits is always 1-D ──────────────────
-            # Shape can be (N,1), (N,), or () for a single candidate
+            # Handle 0-D, 1-D, and 2-D logit shapes
             if logits.dim() == 0:
-                # Scalar tensor — single candidate
                 logits = logits.unsqueeze(0)
             elif logits.dim() == 2:
-                # (N, 1) → squeeze last dim → (N,)
                 logits = logits.squeeze(-1)
-            # Now logits is always shape (N,)
 
             scores = torch.sigmoid(logits)
-
-            # tolist() on a 0-d or 1-element tensor can return a float
             normalized = scores.tolist()
             if isinstance(normalized, float):
                 normalized = [normalized]
-            # ── END FIX ───────────────────────────────────────────
 
-        scored = sorted(
-            zip(normalized, candidates),
-            key=lambda x: x[0],
-            reverse=True
-        )
+        scored = sorted(zip(normalized, candidates), key=lambda x: x[0], reverse=True)
 
         result = []
         for score, chunk in scored[:top_k]:
             chunk['rerank_score'] = float(score)
             result.append(chunk)
         return result
+
+    # ─────────────────────────────────────────────────────────
+    # MAIN ENTRY POINT
+    # ─────────────────────────────────────────────────────────
 
     def retrieve(
         self,
@@ -273,18 +291,15 @@ class LexAIRetriever:
         top_k: int = 6
     ) -> list:
         """
-        Simplified retrieval pipeline:
-        1. Vector search  — get 40 semantic candidates
-        2. Rerank         — cross-encoder returns top 6
+        Hybrid retrieval pipeline:
+        1. Dense vector search  → 30 candidates (semantic match)
+        2. Sparse BM25 search   → 30 candidates (keyword match)
+        3. RRF fusion           → 20 fused candidates
+        4. Cross-encoder rerank → top_k final results
 
-        Note: BM25 keyword search is disabled to reduce memory usage
-        and startup time on free tier. Accuracy is still good
-        for most queries (~85% vs ~92% with BM25).
+        Returns chunks with keys: id, text, metadata, score, method, rerank_score
         """
-        vector_results = self._vector_search(
-            query,
-            top_k=40,
-            province_filter=province_filter
-        )
-
-        return self._rerank(query, vector_results, top_k=top_k)
+        dense  = self._vector_search(query, top_k=30, province_filter=province_filter)
+        sparse = self._bm25_search(query, top_k=30, province_filter=province_filter)
+        fused  = self._rrf_fuse(dense, sparse, top_n=20)
+        return self._rerank(query, fused, top_k=top_k)

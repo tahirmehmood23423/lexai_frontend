@@ -1,0 +1,10 @@
+chroma_db/
+lexai_test.db
+bm25_cache.json
+venv/
+.venv/
+__pycache__/
+**/__pycache__/
+*.pyc
+.env
+upload_chroma.py

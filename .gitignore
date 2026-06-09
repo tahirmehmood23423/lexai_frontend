@@ -13,3 +13,7 @@ echo "chroma_db/" >> .gitignore
 echo "bm25_cache.json" >> .gitignore
 echo "*.db" >> .gitignore
 echo "__pycache__/" >> .gitignore
+backend/lexai.db
+*.db
+*.sqlite
+*.sqlite3

@@ -17,3 +17,10 @@ backend/lexai.db
 *.db
 *.sqlite
 *.sqlite3
+
+backend/venv/
+backend/.venv/
+venv/
+.venv/
+__pycache__/
+*.pyc

@@ -1,81 +1,43 @@
----
-title: LexAI Backend
-emoji: ⚖️
-colorFrom: blue
-colorTo: purple
-sdk: docker
-pinned: false
----
+FROM python:3.11-slim
 
-# LexAI Backend API
+WORKDIR /app
 
-AI-powered legal assistant for Pakistani law. Built with FastAPI, ChromaDB, and Llama 3.3 70B.
+ENV PYTHONPATH=/app \
+    HF_HOME=/app/.cache/huggingface \
+    SENTENCE_TRANSFORMERS_HOME=/app/.cache/huggingface \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1
 
-## Features
-- 740,735 legal document chunks from Pakistani law books
-- Hybrid retrieval: Vector search + Cross-encoder reranking
-- Conversation memory with persistent sessions
-- Streaming responses via Server-Sent Events
-- Urdu + English language support
+# System deps
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
 
-## API Endpoints
+# Python deps (cached layer)
+COPY backend/requirements.txt .
+RUN pip install --default-timeout=1000 \
+    --extra-index-url https://download.pytorch.org/whl/cpu \
+    -r requirements.txt
 
-### Health Check
-```
-GET /health
-```
+# Application code
+COPY backend/ .
 
-### Chat (Non-streaming)
-```
-POST /api/chat
-{
-  "query": "What are the charges of murder in Pakistan?",
-  "session_id": "optional-uuid",
-  "province_filter": "Punjab"
-}
-```
+# Pre-download PUBLIC models at build time (cached in image)
+# ChromaDB is private and downloads at runtime instead
+RUN python download_models.py
 
-### Chat (Streaming)
-```
-POST /api/chat/stream
-{
-  "query": "What is Section 302 PPC?",
-  "session_id": "optional-uuid"
-}
-```
+# HF Spaces convention: non-root user with UID 1000
+RUN useradd -m -u 1000 user && \
+    mkdir -p /app/.cache/huggingface /app/data && \
+    chown -R user:user /app
 
-### Sessions
-```
-GET /api/chat/sessions
-GET /api/chat/sessions/{session_id}/messages
-DELETE /api/chat/sessions/{session_id}
-```
+USER user
 
-## Environment Variables
+EXPOSE 7860
 
-Required in HF Spaces Settings → Repository secrets:
+HEALTHCHECK --interval=30s --timeout=10s --start-period=600s --retries=3 \
+    CMD curl -f http://localhost:7860/health || exit 1
 
-- `GROQ_API_KEY` - Get from console.groq.com
-- `HF_TOKEN` - Your Hugging Face token (read access)
-- `HF_CHROMA_REPO` - Your ChromaDB repo (e.g., username/lexai-chroma-db)
-- `DATABASE_URL` - sqlite:///./lexai.db
-- `SECRET_KEY` - Any random string for JWT tokens
-
-## Deployment
-
-This Space automatically deploys from the main branch. First deployment takes ~20 minutes to download:
-- ChromaDB (3-4 GB) from your private HF dataset
-- AI models (2.5 GB total): multilingual-e5-large + cross-encoder
-
-Subsequent deploys are much faster due to Docker layer caching.
-
-## Tech Stack
-- **Framework**: FastAPI 0.111.0
-- **Vector DB**: ChromaDB 0.5.0
-- **Embeddings**: intfloat/multilingual-e5-large
-- **Reranker**: cross-encoder/ms-marco-MiniLM-L6-v2
-- **LLM**: Llama 3.3 70B via Groq API
-- **Memory**: SQLite with SQLAlchemy
-
-## License
-MIT
+# Entrypoint downloads ChromaDB (needs HF_TOKEN at runtime), then starts API
+CMD ["sh", "-c", "python download_chroma.py && uvicorn main:app --host 0.0.0.0 --port 7860"]

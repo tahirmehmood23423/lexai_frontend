@@ -1,12 +1,13 @@
 # ═══════════════════════════════════════════════════════════════
 # backend/routers/all_routers.py
-# Utility routes — health, openapi, misc endpoints
+# Utility routes — health, profile, lawyer discovery, lawyer profile mgmt
 # ═══════════════════════════════════════════════════════════════
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from core.database import get_db, User, LawyerProfile
+from core.database import get_db, User, LawyerProfile, Case, Booking, Message, MessageThread
 from routers.auth import get_current_user
+import uuid
 
 router = APIRouter()
 
@@ -145,30 +146,120 @@ def search_lawyers(
     
     return {"lawyers": result, "total": len(result)}
 
-@router.get("/lawyers/{lawyer_id}")
-def get_lawyer(lawyer_id: str, db: Session = Depends(get_db)):
-    """Get lawyer profile details."""
-    lp = db.query(LawyerProfile).filter(LawyerProfile.id == lawyer_id).first()
-    if not lp:
-        raise __import__('fastapi').HTTPException(status_code=404, detail="Lawyer not found")
-    
-    if not lp.user:
-        raise __import__('fastapi').HTTPException(status_code=404, detail="Lawyer user not found")
-    
+def _lp_dict(lp: LawyerProfile) -> dict:
+    u = lp.user
     return {
         "id": lp.id,
-        "user_id": lp.user.id,
-        "full_name": lp.user.full_name,
+        "user_id": u.id if u else None,
+        "full_name": u.full_name if u else "Unknown",
+        "email": u.email if u else None,
         "bio": lp.bio,
         "city": lp.city,
+        "province": lp.province,
+        "office_address": lp.office_address,
         "specializations": lp.specializations or [],
         "experience_years": lp.experience_years,
         "education": lp.education or [],
         "languages": lp.languages or [],
+        "court_types": lp.court_types or [],
+        "consultation_fee": lp.consultation_fee,
+        "is_available": lp.is_available,
+        "is_verified": lp.is_verified,
         "rating_avg": lp.rating_avg,
         "rating_count": lp.rating_count,
-        "consultation_fee": lp.consultation_fee,
         "profile_photo_url": lp.profile_photo_url,
-        "is_verified": lp.is_verified,
-        "office_address": lp.office_address,
+        "bar_council_no": lp.bar_council_no,
+        "role_in_firm": lp.role_in_firm,
+        "firm_id": lp.firm_id,
+    }
+
+
+@router.get("/lawyers/me")
+def get_my_lawyer_profile(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user)
+):
+    if user.role not in ["lawyer", "firm_admin", "admin"]:
+        raise HTTPException(status_code=403, detail="Not a lawyer account")
+    lp = db.query(LawyerProfile).filter(LawyerProfile.user_id == user.id).first()
+    if not lp:
+        return None
+    return _lp_dict(lp)
+
+
+@router.post("/lawyers/me", status_code=201)
+def create_or_update_lawyer_profile(
+    data: dict,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user)
+):
+    if user.role not in ["lawyer", "firm_admin", "admin"]:
+        raise HTTPException(status_code=403, detail="Not a lawyer account")
+
+    lp = db.query(LawyerProfile).filter(LawyerProfile.user_id == user.id).first()
+    if not lp:
+        lp = LawyerProfile(id=str(uuid.uuid4()), user_id=user.id)
+        db.add(lp)
+
+    allowed = [
+        "bio", "city", "province", "office_address", "specializations",
+        "experience_years", "education", "languages", "court_types",
+        "consultation_fee", "is_available", "profile_photo_url", "bar_council_no",
+        "role_in_firm",
+    ]
+    for field in allowed:
+        if field in data:
+            setattr(lp, field, data[field])
+
+    db.commit()
+    db.refresh(lp)
+    return _lp_dict(lp)
+
+
+@router.get("/lawyers/{lawyer_id}")
+def get_lawyer(lawyer_id: str, db: Session = Depends(get_db)):
+    lp = db.query(LawyerProfile).filter(LawyerProfile.id == lawyer_id).first()
+    if not lp:
+        raise HTTPException(status_code=404, detail="Lawyer not found")
+    if not lp.user:
+        raise HTTPException(status_code=404, detail="Lawyer user not found")
+    return _lp_dict(lp)
+
+
+@router.get("/dashboard/summary")
+def dashboard_summary(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user)
+):
+    """Quick stats for the current user's dashboard."""
+    if user.role in ["lawyer", "firm_admin", "admin"]:
+        lp = db.query(LawyerProfile).filter(LawyerProfile.user_id == user.id).first()
+        lp_id = lp.id if lp else None
+        total_cases = db.query(Case).filter(Case.lawyer_id == lp_id).count() if lp_id else 0
+        active_cases = db.query(Case).filter(Case.lawyer_id == lp_id, Case.status.in_(["open", "active"])).count() if lp_id else 0
+        total_bookings = db.query(Booking).filter(Booking.lawyer_id == lp_id).count() if lp_id else 0
+        pending_bookings = db.query(Booking).filter(Booking.lawyer_id == lp_id, Booking.status == "pending").count() if lp_id else 0
+    else:
+        total_cases = db.query(Case).filter(Case.client_id == user.id).count()
+        active_cases = db.query(Case).filter(Case.client_id == user.id, Case.status.in_(["open", "active"])).count()
+        total_bookings = db.query(Booking).filter(Booking.client_id == user.id).count()
+        pending_bookings = db.query(Booking).filter(Booking.client_id == user.id, Booking.status == "pending").count()
+
+    unread_msgs = (
+        db.query(Message)
+        .join(MessageThread, Message.thread_id == MessageThread.id)
+        .filter(
+            Message.sender_id != user.id,
+            Message.is_read == False,
+            (MessageThread.client_id == user.id) | (MessageThread.lawyer_id == user.id)
+        )
+        .count()
+    )
+
+    return {
+        "total_cases": total_cases,
+        "active_cases": active_cases,
+        "total_bookings": total_bookings,
+        "pending_bookings": pending_bookings,
+        "unread_messages": unread_msgs,
     }

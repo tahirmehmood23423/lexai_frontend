@@ -269,3 +269,178 @@ class Review(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     client = relationship("User", foreign_keys=[client_id], back_populates="reviews_given")
     lawyer = relationship("LawyerProfile", back_populates="reviews")
+# ═══════════════════════════════════════════════════════════════
+# ADD THESE MODELS TO: backend/core/database.py
+# (Append to the bottom of your existing database.py file)
+# ═══════════════════════════════════════════════════════════════
+
+import uuid
+import enum
+from sqlalchemy import (
+    Column, String, Text, Integer, Float, Boolean, DateTime, ForeignKey,
+    JSON, Enum as SQLEnum
+)
+from sqlalchemy.orm import relationship
+from datetime import datetime
+# Assumes Base is already imported from your existing database.py
+
+
+# ─────────────────────────────────────────────────────────────
+# ENUMS
+# ─────────────────────────────────────────────────────────────
+class FirmMemberRole(str, enum.Enum):
+    owner     = "owner"      # Full control, can delete firm
+    admin     = "admin"      # Manage members + settings (not delete)
+    partner   = "partner"    # Senior lawyer, dashboard access
+    associate = "associate"  # Regular lawyer
+    intern    = "intern"     # Junior, limited access
+
+
+class InviteStatus(str, enum.Enum):
+    pending  = "pending"
+    accepted = "accepted"
+    declined = "declined"
+    expired  = "expired"
+
+
+class InquiryStatus(str, enum.Enum):
+    new       = "new"
+    contacted = "contacted"
+    converted = "converted"
+    closed    = "closed"
+
+
+# ─────────────────────────────────────────────────────────────
+# LAW FIRM
+# ─────────────────────────────────────────────────────────────
+class LawFirm(Base):
+    __tablename__ = "law_firms"
+
+    id              = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    name            = Column(String, nullable=False)
+    slug            = Column(String, unique=True, nullable=False, index=True)
+    description     = Column(Text)
+    logo_url        = Column(String)
+    website         = Column(String)
+    email           = Column(String)
+    phone           = Column(String)
+
+    # Location
+    address         = Column(Text)
+    city            = Column(String, index=True)
+    province        = Column(String, index=True)
+
+    # Professional
+    established_year       = Column(Integer)
+    bar_council_membership = Column(String)
+    practice_areas         = Column(JSON, default=list)   # ["Criminal", "Civil", ...]
+    services               = Column(JSON, default=list)
+    languages              = Column(JSON, default=list)   # ["Urdu", "English", ...]
+
+    # Verification & social proof
+    is_verified         = Column(Boolean, default=False)
+    verification_date   = Column(DateTime)
+    verified_by         = Column(String, ForeignKey("users.id"))
+    rating_avg          = Column(Float, default=0.0)
+    rating_count        = Column(Integer, default=0)
+
+    # Ownership
+    owner_id            = Column(String, ForeignKey("users.id"), nullable=False)
+    created_at          = Column(DateTime, default=datetime.utcnow)
+    updated_at          = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # Relationships
+    members    = relationship("FirmMember", back_populates="firm", cascade="all, delete-orphan")
+    invites    = relationship("FirmInvite", back_populates="firm", cascade="all, delete-orphan")
+    inquiries  = relationship("FirmInquiry", back_populates="firm", cascade="all, delete-orphan")
+    reviews    = relationship("FirmReview", back_populates="firm", cascade="all, delete-orphan")
+
+
+# ─────────────────────────────────────────────────────────────
+# FIRM MEMBER (User ↔ LawFirm)
+# ─────────────────────────────────────────────────────────────
+class FirmMember(Base):
+    __tablename__ = "firm_members"
+
+    id             = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    firm_id        = Column(String, ForeignKey("law_firms.id"), nullable=False)
+    user_id        = Column(String, ForeignKey("users.id"), nullable=False)
+    role           = Column(SQLEnum(FirmMemberRole), default=FirmMemberRole.associate)
+    role_in_firm   = Column(String)   # Display title, e.g. "Senior Partner — Family Law"
+    is_active      = Column(Boolean, default=True)
+    joined_at      = Column(DateTime, default=datetime.utcnow)
+    left_at        = Column(DateTime)
+
+    firm = relationship("LawFirm", back_populates="members")
+    user = relationship("User", foreign_keys=[user_id])
+
+
+# ─────────────────────────────────────────────────────────────
+# FIRM INVITE
+# ─────────────────────────────────────────────────────────────
+class FirmInvite(Base):
+    __tablename__ = "firm_invites"
+
+    id           = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    firm_id      = Column(String, ForeignKey("law_firms.id"), nullable=False)
+    email        = Column(String, nullable=False)
+    invited_by   = Column(String, ForeignKey("users.id"), nullable=False)
+    role         = Column(SQLEnum(FirmMemberRole), default=FirmMemberRole.associate)
+    role_in_firm = Column(String)
+    status       = Column(SQLEnum(InviteStatus), default=InviteStatus.pending)
+    token        = Column(String, unique=True, default=lambda: str(uuid.uuid4()))
+    message      = Column(Text)
+    expires_at   = Column(DateTime)
+    created_at   = Column(DateTime, default=datetime.utcnow)
+    accepted_at  = Column(DateTime)
+
+    firm = relationship("LawFirm", back_populates="invites")
+
+
+# ─────────────────────────────────────────────────────────────
+# FIRM INQUIRY (Lead capture from firm profile)
+# ─────────────────────────────────────────────────────────────
+class FirmInquiry(Base):
+    __tablename__ = "firm_inquiries"
+
+    id             = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    firm_id        = Column(String, ForeignKey("law_firms.id"), nullable=False)
+
+    # Contact info (works for anonymous + authenticated)
+    name           = Column(String, nullable=False)
+    email          = Column(String, nullable=False)
+    phone          = Column(String)
+    user_id        = Column(String, ForeignKey("users.id"))  # null if anonymous
+
+    # Inquiry details
+    subject        = Column(String)
+    message        = Column(Text, nullable=False)
+    practice_area  = Column(String)
+
+    # Routing
+    status         = Column(SQLEnum(InquiryStatus), default=InquiryStatus.new)
+    assigned_to    = Column(String, ForeignKey("users.id"))
+    notes          = Column(Text)   # Internal notes from firm
+
+    created_at     = Column(DateTime, default=datetime.utcnow)
+    updated_at     = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    firm = relationship("LawFirm", back_populates="inquiries")
+
+
+# ─────────────────────────────────────────────────────────────
+# FIRM REVIEW
+# ─────────────────────────────────────────────────────────────
+class FirmReview(Base):
+    __tablename__ = "firm_reviews"
+
+    id          = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    firm_id     = Column(String, ForeignKey("law_firms.id"), nullable=False)
+    user_id     = Column(String, ForeignKey("users.id"), nullable=False)
+    rating      = Column(Integer, nullable=False)   # 1-5
+    comment     = Column(Text)
+    is_verified = Column(Boolean, default=False)    # True if user actually worked with firm
+    created_at  = Column(DateTime, default=datetime.utcnow)
+
+    firm = relationship("LawFirm", back_populates="reviews")
+    user = relationship("User", foreign_keys=[user_id])

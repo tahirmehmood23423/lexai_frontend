@@ -35,3 +35,8 @@ def root():
 @app.get("/health")
 def health():
     return {"status": "ok", "version": "3.0.0"}
+# 1. Add import at the top with other router imports:
+from routers import firms
+
+# 2. Register the router (add after your existing app.include_router calls):
+app.include_router(firms.router, prefix="/api/firms", tags=["Law Firms"])

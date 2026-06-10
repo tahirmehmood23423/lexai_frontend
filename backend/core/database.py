@@ -1,5 +1,6 @@
 import os, enum, uuid
-from sqlalchemy import create_engine, Column, String, Integer, Float, Boolean, DateTime, Text, ForeignKey, Enum, JSON
+from datetime import datetime
+from sqlalchemy import create_engine, Column, String, Integer, Float, Boolean, DateTime, Text, ForeignKey, Enum, Enum as SQLEnum, JSON
 from sqlalchemy.orm import declarative_base, sessionmaker, relationship
 from sqlalchemy.sql import func
 
@@ -149,7 +150,6 @@ class CaseUpdate(Base):
     created_at           = Column(DateTime(timezone=True), server_default=func.now())
     case   = relationship("Case", back_populates="updates")
     author = relationship("User")
-    lawyers    = relationship("LawyerProfile", back_populates="firm")
 
 class Hearing(Base):
     __tablename__ = "hearings"
@@ -238,21 +238,6 @@ class Review(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     client = relationship("User", foreign_keys=[client_id], back_populates="reviews_given")
     lawyer = relationship("LawyerProfile", back_populates="reviews")
-# ═══════════════════════════════════════════════════════════════
-# ADD THESE MODELS TO: backend/core/database.py
-# (Append to the bottom of your existing database.py file)
-# ═══════════════════════════════════════════════════════════════
-
-import uuid
-import enum
-from sqlalchemy import (
-    Column, String, Text, Integer, Float, Boolean, DateTime, ForeignKey,
-    JSON, Enum as SQLEnum
-)
-from sqlalchemy.orm import relationship
-from datetime import datetime
-# Assumes Base is already imported from your existing database.py
-
 
 # ─────────────────────────────────────────────────────────────
 # ENUMS
@@ -319,6 +304,7 @@ class LawFirm(Base):
     updated_at          = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     # Relationships
+    lawyers    = relationship("LawyerProfile", back_populates="firm")
     members    = relationship("FirmMember", back_populates="firm", cascade="all, delete-orphan")
     invites    = relationship("FirmInvite", back_populates="firm", cascade="all, delete-orphan")
     inquiries  = relationship("FirmInquiry", back_populates="firm", cascade="all, delete-orphan")

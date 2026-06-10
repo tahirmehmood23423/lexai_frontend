@@ -149,7 +149,7 @@ class CaseUpdate(Base):
     created_at           = Column(DateTime(timezone=True), server_default=func.now())
     case   = relationship("Case", back_populates="updates")
     author = relationship("User")
-
+    lawyers    = relationship("LawyerProfile", back_populates="firm")
 
 class Hearing(Base):
     __tablename__ = "hearings"

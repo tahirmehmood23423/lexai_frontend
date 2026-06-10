@@ -51,38 +51,7 @@ class ConsultationType(str, enum.Enum):
     phone = "phone"
 
 
-# ─────────────────────────────────────────────────────────────
-# NEW: LAW FIRM
-# ─────────────────────────────────────────────────────────────
-class LawFirm(Base):
-    __tablename__ = "law_firms"
-    id              = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    name            = Column(String, nullable=False, index=True)
-    slug            = Column(String, unique=True, nullable=False, index=True)  # url-friendly
-    description     = Column(Text, nullable=True)
-    logo_url        = Column(String, nullable=True)
-    website         = Column(String, nullable=True)
-    email           = Column(String, nullable=True)
-    phone           = Column(String, nullable=True)
-    address         = Column(String, nullable=True)
-    city            = Column(String, nullable=True)
-    province        = Column(String, nullable=True)
-    practice_areas  = Column(JSON, default=list)  # ["Criminal", "Civil", ...]
-    services        = Column(JSON, default=list)  # list of services offered
-    established_year = Column(Integer, nullable=True)
-    is_verified     = Column(Boolean, default=False)
-    is_active       = Column(Boolean, default=True)
-    owner_id        = Column(String, ForeignKey("users.id"), nullable=False)
-    created_at      = Column(DateTime(timezone=True), server_default=func.now())
-    updated_at      = Column(DateTime(timezone=True), onupdate=func.now())
-
-    owner    = relationship("User", foreign_keys=[owner_id])
-    lawyers  = relationship("LawyerProfile", back_populates="firm")
-
-
-# ─────────────────────────────────────────────────────────────
-# USER
-# ─────────────────────────────────────────────────────────────
+# ────────────────────────────────────────────────────────────
 class User(Base):
     __tablename__ = "users"
     id            = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))

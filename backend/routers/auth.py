@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, EmailStr
+from typing import Optional
 from datetime import datetime, timedelta
 from passlib.context import CryptContext
 from jose import JWTError, jwt
@@ -36,17 +37,17 @@ class UserRegister(BaseModel):
     email: str
     password: str
     role: str = "client"
-    phone: str = None
-    city: str = None
+    phone: Optional[str] = None
+    city: Optional[str] = None
 
 class UserResponse(BaseModel):
     id: str
     email: str
     full_name: str
     role: str
-    phone: str = None
-    city: str = None
-    avatar_url: str = None
+    phone: Optional[str] = None
+    city: Optional[str] = None
+    avatar_url: Optional[str] = None
     is_verified: bool = False
 
 class TokenResponse(BaseModel):
